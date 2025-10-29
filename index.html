@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>배드민턴 대진표 & 점수 기록</title>
+<style>
+body{font-family:'Noto Sans KR',sans-serif;margin:0;padding:20px;background:#f7fafc;}
+.container{max-width:1200px;margin:0 auto;background:white;padding:20px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.05);}
+input,select,button{padding:6px;margin:4px;border-radius:8px;border:1px solid #ccc;}
+button{background:#2563eb;color:white;border:none;cursor:pointer;}
+button:hover{background:#1d4ed8;}
+.players,.match,.leftovers,.storage,.scores{margin-top:10px;padding:10px;border-radius:8px;}
+.players{border:1px dashed #ccc;min-height:40px;}
+.match{background:#e0f2fe;margin-bottom:8px;padding:8px;border-radius:8px;}
+.leftovers{background:#fff3cd;border:1px solid #ffeeba;padding:8px;border-radius:8px;margin-top:10px;}
+.court{font-weight:bold;}
+.small{font-size:13px;color:#475569;margin-bottom:8px;}
+.delete-btn{background:#dc2626;color:white;border:none;border-radius:4px;padding:2px 6px;font-size:12px;cursor:pointer;margin-left:4px;}
+.delete-btn:hover{background:#b91c1c;}
+input.score-input{width:50px;}
+table{width:100%;border-collapse:collapse;margin-top:8px;}
+th,td{padding:6px;border-bottom:1px solid #eee;text-align:left;}
+.saved-item{display:inline-block;width:32%;margin:4px;padding:4px;border:1px solid #ccc;border-radius:6px;background:#f1f5f9;vertical-align:top;}
+.saved-item button{margin-top:2px;padding:2px 6px;font-size:12px;display:block;width:100%;}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>🏸 배드민턴 대진표 & 점수 기록</h1>
+
+<div>
+<input id="name" placeholder="이름 입력" />
+<select id="age"><option>20대</option><option>30대</option><option>40대</option><option>50대</option><option>60대</option></select>
+<select id="gender"><option>남자</option><option>여자</option></select>
+<select id="group"><option>A조</option><option>B조</option><option>C조</option><option>D조</option><option>E조</option></select>
+<input id="rating" type="number" min="0" max="100" placeholder="평점(0~100)" style="width:100px;" />
+<span class="small">E조(0~20) D조(21~40) C조(41~60) B조(61~80) A조(81~100), 기본값 중간값</span>
+<button onclick="addPlayer()">추가</button>
+</div>
+
+<div class="players" id="playerList">등록된 선수가 없습니다.</div>
+
+<div style="margin-top:12px;">
+<select id="courtCount"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option selected>8</option></select> 코트
+<button onclick="makeDraw(false)">전체 밸런스 대진표 생성</button>
+<button onclick="makeDraw(true)">조별 밸런스 대진표 생성</button>
+<button onclick="resetCourts()">코트 초기화</button>
+<button onclick="resetCourtPlayers()">코트 인원 초기화</button>
+</div>
+
+<div id="leftoverPlayers" class="leftovers">이번 게임 참여 못한 선수: 없음</div>
+
+<div class="storage">
+<h3>💾 선수 명단 저장/불러오기</h3>
+<input id="saveName" placeholder="저장 이름 입력" />
+<button onclick="savePlayers()">저장</button>
+<button onclick="addAllSavedToDraw()">저장 명단 전체 대진표 추가</button>
+<div id="savedLists"></div>
+</div>
+
+<div id="draw"></div>
+
+<div class="scores">
+<h3>📊 선수별 누적 점수 & 오늘 게임 참여 횟수 (최대 10게임)</h3>
+<div id="playerScores"></div>
+</div>
+
+<script>
+let players=JSON.parse(localStorage.getItem('currentPlayers')||'[]');
+let matchesData=JSON.parse(localStorage.getItem('matchesData')||'[]');
+let playerScores=JSON.parse(localStorage.getItem('playerScores')||'{}');
+
+function saveCurrent(){
+  localStorage.setItem('currentPlayers',JSON.stringify(players));
+  localStorage.setItem('matchesData',JSON.stringify(matchesData));
+  localStorage.setItem('playerScores',JSON.stringify(playerScores));
+}
+
+function addPlayer(){
+  let name=document.getElementById('name').value.trim();
+  let age=document.getElementById('age').value;
+  let gender=document.getElementById('gender').value;
+  let group=document.getElementById('group').value;
+  let rating=parseInt(document.getElementById('rating').value)||50;
+  if(players.length>=50){ alert('최대 50명까지 등록 가능합니다.'); return; }
+  if(rating>=81) group='A조'; else if(rating>=61) group='B조'; else if(rating>=41) group='C조'; else if(rating>=21) group='D조'; else group='E조';
+  players.push({name,age,gender,group,rating});
+  document.getElementById('name').value='';document.getElementById('rating').value='';
+  renderPlayers();saveCurrent();
+}
+
+function deletePlayer(index){ if(!confirm(players[index].name+' 삭제?')) return; players.splice(index,1); renderPlayers(); saveCurrent(); }
+function renderPlayers(){
+  const list=document.getElementById('playerList');
+  if(players.length===0){ list.innerHTML='등록된 선수가 없습니다.'; return; }
+  list.innerHTML=players.map((p,i)=>`<div>${i+1}. ${p.name} (${p.age},${p.gender},${p.group},평점:${p.rating})
+  <button class='delete-btn' onclick='deletePlayer(${i})'>삭제</button></div>`).join('');
+}
+
+// 대진표 생성
+function shuffle(array){for(let i=array.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[array[i],array[j]]=[array[j],array[i]];}return array;}
+function makeDraw(byGroup){
+  if(players.length<4){ alert('최소4명 이상'); return; }
+  let targetPlayers=players.slice();
+  // 지난 게임 참여 못한 선수 우선 배정
+  let leftover=JSON.parse(localStorage.getItem('leftover')||'[]');
+  let priority=targetPlayers.filter(p=>leftover.includes(p.name));
+  let normal=targetPlayers.filter(p=>!leftover.includes(p.name));
+  targetPlayers=priority.concat(normal);
+  if(byGroup){let group=prompt('조(A~E)').toUpperCase(); targetPlayers=targetPlayers.filter(p=>p.group===group+'조');}
+  targetPlayers=targetPlayers.sort((a,b)=>b.rating-a.rating);
+  const matches=[];
+  while(targetPlayers.length>=4 && matches.length<8){
+    const t1=[targetPlayers.shift(),targetPlayers.pop()];
+    const t2=[targetPlayers.shift(),targetPlayers.pop()];
+    matches.push([t1,t2]);
+  }
+  leftover=targetPlayers.map(p=>p.name);
+  localStorage.setItem('leftover',JSON.stringify(leftover));
+  document.getElementById('leftoverPlayers').innerText='이번 게임 참여 못한 선수: '+(leftover.length? leftover.join(', '):'없음');
+  renderDraw(matches);
+}
+
+// 대진표 렌더
+function renderDraw(matchList){
+  const draw=document.getElementById('draw'); matchesData=[]; draw.innerHTML='';
+  matchList.forEach((m,i)=>{
+    matchesData.push({team1:m[0],team2:m[1],score:[0,0]});
+    let html=`<div class='match'><b>경기 ${i+1}</b>`;
+    html+=`<div>${m[0].map(p=>p.name).join(', ')} VS ${m[1].map(p=>p.name).join(', ')}</div>`;
+    html+=`<div>점수: <input class='score-input' type='number' min='0' max='25' onchange='updateScore(${i},0,this.value)' /> :
+           <input class='score-input' type='number' min='0' max='25' onchange='updateScore(${i},1,this.value)' /> 승리 표시: <span id='win${i}'>-</span></div>`;
+    html+='</div>'; draw.innerHTML+=html;
+  });
+  saveCurrent(); updatePlayerScores();
+}
+
+// 점수 업데이트
+function updateScore(matchIndex,teamIndex,val){
+  val=parseInt(val)||0; matchesData[matchIndex].score[teamIndex]=val;
+  // 승리 표시
+  let winSpan=document.getElementById('win'+matchIndex);
+  if(matchesData[matchIndex].score[0]>=25) winSpan.innerText='팀1 승';
+  else if(matchesData[matchIndex].score[1]>=25) winSpan.innerText='팀2 승';
+  else winSpan.innerText='-';
+  updatePlayerScores(); saveCurrent();
+}
+
+// 코트 초기화
+function resetCourts(){
+  if(!confirm('점수 유지?')) playerScores={};
+  matchesData=[]; renderDraw([]);
+  saveCurrent(); renderPlayerScores();
+}
+
+// 코트 인원 초기화
+function resetCourtPlayers(){
+  if(!confirm('이번 코트 배정 선수 삭제?')) return;
+  let active=[]; matchesData.forEach(m=>m.team1.concat(m.team2).forEach(p=>active.push(p.name)));
+  players=players.filter(p=>!active.includes(p.name));
+  matchesData=[]; renderDraw([]); renderPlayers(); updatePlayerScores(); saveCurrent();
+}
+
+// 누적 점수 및 참여횟수
+function updatePlayerScores(){
+  Object.keys(playerScores).forEach(name=>{if(!playerScores[name]) playerScores[name]={scores:[],count:0};});
+  matchesData.forEach(m=>{
+    m.team1.forEach(p=>{
+      if(!playerScores[p.name]) playerScores[p.name]={scores:[],count:0};
+      playerScores[p.name].scores.push(m.score[0]); if(playerScores[p.name].scores.length>10) playerScores[p.name].scores.shift();
+      playerScores[p.name].count++;
+    });
+    m.team2.forEach(p=>{
+      if(!playerScores[p.name]) playerScores[p.name]={scores:[],count:0};
+      playerScores[p.name].scores.push(m.score[1]); if(playerScores[p.name].scores.length>10) playerScores[p.name].scores.shift();
+      playerScores[p.name].count++;
+    });
+  });
+  renderPlayerScores();
+}
+function renderPlayerScores(){
+  const div=document.getElementById('playerScores'); let html='<table><tr><th>이름</th><th>점수 내역</th><th>총점</th><th>오늘 게임 참여 횟수</th></tr>';
+  Object.keys(playerScores).sort().forEach(name=>{
+    const s=playerScores[name].scores, total=s.reduce((a,b)=>a+b,0), count=playerScores[name].count;
+    html+=`<tr><td>${name}</td><td>${s.join(', ')}</td><td>${total}</td><td>${count}</td></tr>`;
+  }); html+='</table>'; div.innerHTML=html;
+}
+
+// 초기 렌더링
+renderPlayers(); updatePlayerScores();
+</script>
+</div>
+</body>
+</html>
